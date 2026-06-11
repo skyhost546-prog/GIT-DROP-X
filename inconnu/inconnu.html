@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GitDrop X ⚡ — Premium Edition</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root {
     --bg-dark: #0f0f15;
@@ -1295,10 +1296,33 @@
     btn.classList.add('active');
   }
 
-  function handleFiles(files) {
+  async function handleFiles(files) {
     for (const f of files) {
-      if (!uploadedFiles.find(x => x.name === f.name)) {
-        uploadedFiles.push(f);
+      if (f.name.endsWith('.zip')) {
+        // Décompresser le ZIP et ajouter chaque fichier individuel
+        try {
+          const zip = await JSZip.loadAsync(f);
+          const entries = Object.values(zip.files).filter(e => !e.dir);
+          for (const entry of entries) {
+            const blob = await entry.async('blob');
+            // Garder le chemin relatif comme nom de fichier (sans le dossier racine du zip)
+            const parts = entry.name.split('/');
+            // Retirer le premier dossier racine si présent (ex: "GIT-DROP-X-main/")
+            const filePath = parts.length > 1 ? parts.slice(1).join('/') : entry.name;
+            if (!filePath) continue; // ignorer les entrées vides
+            const file = new File([blob], filePath, { type: blob.type });
+            if (!uploadedFiles.find(x => x.name === filePath)) {
+              uploadedFiles.push(file);
+            }
+          }
+          log(`📦 ZIP décompressé: ${entries.length} fichiers extraits depuis ${f.name}`, 'info');
+        } catch (err) {
+          log(`❌ Erreur décompression ZIP: ${err.message}`, 'error');
+        }
+      } else {
+        if (!uploadedFiles.find(x => x.name === f.name)) {
+          uploadedFiles.push(f);
+        }
       }
     }
     renderFileList();
@@ -1424,8 +1448,9 @@
         const content = await toBase64(file);
 
         let sha;
+        const filePath = file.name; // peut contenir des sous-dossiers ex: server/index.js
         const existing = await fetch(
-          `https://api.github.com/repos/${user.login}/${repoName}/contents/${file.name}`,
+          `https://api.github.com/repos/${user.login}/${repoName}/contents/${filePath}`,
           { headers: { Authorization: `token ${githubToken}` } }
         );
         if (existing.ok) {
@@ -1434,7 +1459,7 @@
         }
 
         const uploadRes = await fetch(
-          `https://api.github.com/repos/${user.login}/${repoName}/contents/${file.name}`,
+          `https://api.github.com/repos/${user.login}/${repoName}/contents/${filePath}`,
           {
             method: 'PUT',
             headers: {
